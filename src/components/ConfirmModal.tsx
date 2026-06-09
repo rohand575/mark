@@ -1,5 +1,8 @@
 interface ConfirmModalProps {
   title: string;
+  /** Overrides the default “…has unsaved changes” body text. */
+  message?: string;
+  saveLabel?: string;
   onSave: () => void;
   onDiscard: () => void;
   onCancel: () => void;
@@ -7,6 +10,8 @@ interface ConfirmModalProps {
 
 export default function ConfirmModal({
   title,
+  message,
+  saveLabel = "Save",
   onSave,
   onDiscard,
   onCancel,
@@ -16,8 +21,8 @@ export default function ConfirmModal({
       <div className="modal-card" onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-title">Save changes?</div>
         <div className="modal-body">
-          “{title}” has unsaved changes. Your edits will be lost if you don’t
-          save them.
+          {message ??
+            `“${title}” has unsaved changes. Your edits will be lost if you don’t save them.`}
         </div>
         <div className="modal-actions">
           <button className="btn btn-ghost" onClick={onDiscard}>
@@ -28,7 +33,7 @@ export default function ConfirmModal({
               Cancel
             </button>
             <button className="btn btn-primary" onClick={onSave} autoFocus>
-              Save
+              {saveLabel}
             </button>
           </div>
         </div>

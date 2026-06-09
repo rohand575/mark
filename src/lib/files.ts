@@ -5,8 +5,10 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 export const inTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-export const readFile = (path: string) =>
-  invoke<string>("read_file", { path });
+// Normalize CRLF on read: Milkdown serializes LF, so keeping \r\n in
+// savedContent would make the dirty check never match again after an edit.
+export const readFile = async (path: string) =>
+  (await invoke<string>("read_file", { path })).replace(/\r\n/g, "\n");
 
 export const saveFile = (path: string, contents: string) =>
   invoke<void>("save_file", { path, contents });
@@ -34,4 +36,16 @@ export async function pickSavePath(suggestedName: string): Promise<string | null
 export function fileName(path: string): string {
   const parts = path.split(/[\\/]/);
   return parts[parts.length - 1] || path;
+}
+
+/** Browser fallback for saving: download the markdown as a file. */
+export function downloadMarkdown(name: string, contents: string) {
+  const url = URL.createObjectURL(
+    new Blob([contents], { type: "text/markdown" })
+  );
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = /\.(md|markdown|mdown|mkd)$/i.test(name) ? name : `${name}.md`;
+  a.click();
+  URL.revokeObjectURL(url);
 }

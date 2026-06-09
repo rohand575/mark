@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import Editor from "./components/Editor";
 import Outline from "./components/Outline";
 import TabBar from "./components/TabBar";
@@ -13,6 +14,7 @@ import {
   pickOpenPaths,
   pickSavePath,
   fileName,
+  downloadMarkdown,
 } from "./lib/files";
 import { WELCOME_MARKDOWN, UNTITLED_MARKDOWN } from "./lib/welcome";
 
@@ -37,13 +39,24 @@ function resolveTheme(pref: ThemePref): "light" | "dark" {
     : "light";
 }
 
-let untitledCounter = 0;
+const suggestedFileName = (title: string) =>
+  /\.(md|markdown|mdown|mkd)$/i.test(title) ? title : `${title || "Untitled"}.md`;
+
+/** First free name in the series "Untitled", "Untitled 2", "Untitled 3"… */
+function nextUntitledTitle(tabs: Tab[]): string {
+  const taken = new Set(tabs.map((t) => t.title));
+  for (let n = 1; ; n++) {
+    const name = n === 1 ? "Untitled" : `Untitled ${n}`;
+    if (!taken.has(name)) return name;
+  }
+}
 
 export default function App() {
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [pendingCloseId, setPendingCloseId] = useState<string | null>(null);
+  const [quitRequested, setQuitRequested] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [themePref, setThemePref] = useState<ThemePref>(
     () => (localStorage.getItem("mark-theme") as ThemePref) || null
@@ -98,8 +111,7 @@ export default function App() {
         partial.title ??
         (partial.path
           ? fileName(partial.path)
-          : `Untitled${untitledCounter ? ` ${untitledCounter + 1}` : ""}`);
-      if (!partial.path) untitledCounter += 1;
+          : nextUntitledTitle(tabsRef.current));
       setTabs((ts) => [
         ...ts,
         {
@@ -150,24 +162,21 @@ export default function App() {
     );
   }, []);
 
-  const saveTab = useCallback(
-    async (id: string): Promise<boolean> => {
+  /** Writes a tab's content to a concrete path and marks it clean. */
+  const writeTab = useCallback(
+    async (id: string, path: string): Promise<boolean> => {
       const tab = tabsRef.current.find((t) => t.id === id);
-      if (!tab || !inTauri) return false;
-      let path = tab.path;
-      if (!path) {
-        path = await pickSavePath(`${tab.title || "Untitled"}.md`);
-        if (!path) return false;
-      }
+      if (!tab) return false;
       try {
         await saveFile(path, tab.content);
         setTabs((ts) =>
           ts.map((t) =>
             t.id === id
-              ? { ...t, path, title: fileName(path!), savedContent: t.content }
+              ? { ...t, path, title: fileName(path), savedContent: t.content }
               : t
           )
         );
+        showToast("Saved");
         return true;
       } catch (e) {
         showToast("Couldn't save file");
@@ -176,6 +185,43 @@ export default function App() {
       }
     },
     [showToast]
+  );
+
+  const saveTab = useCallback(
+    async (id: string): Promise<boolean> => {
+      const tab = tabsRef.current.find((t) => t.id === id);
+      if (!tab) return false;
+      if (!inTauri) {
+        // Browser fallback: download the markdown instead of writing to disk.
+        downloadMarkdown(tab.title, tab.content);
+        setTabs((ts) =>
+          ts.map((t) => (t.id === id ? { ...t, savedContent: t.content } : t))
+        );
+        return true;
+      }
+      let path = tab.path;
+      if (!path) {
+        path = await pickSavePath(suggestedFileName(tab.title));
+        if (!path) return false;
+      }
+      return writeTab(id, path);
+    },
+    [writeTab]
+  );
+
+  const saveTabAs = useCallback(
+    async (id: string): Promise<boolean> => {
+      const tab = tabsRef.current.find((t) => t.id === id);
+      if (!tab) return false;
+      if (!inTauri) {
+        downloadMarkdown(tab.title, tab.content);
+        return true;
+      }
+      const path = await pickSavePath(suggestedFileName(tab.title));
+      if (!path) return false;
+      return writeTab(id, path);
+    },
+    [writeTab]
   );
 
   const doCloseTab = useCallback((id: string) => {
@@ -206,9 +252,16 @@ export default function App() {
 
   /* ---------- startup: pending files + open-file events ---------- */
 
+  // One-time work (welcome tab, pending-file drain) must survive StrictMode's
+  // double effect run in dev; refs persist across it, state checks don't.
+  const initRef = useRef(false);
+
   useEffect(() => {
     if (!inTauri) {
-      addTab({ path: null, content: WELCOME_MARKDOWN, title: "Welcome" });
+      if (!initRef.current) {
+        initRef.current = true;
+        addTab({ path: null, content: WELCOME_MARKDOWN, title: "Welcome" });
+      }
       return;
     }
 
@@ -225,6 +278,8 @@ export default function App() {
       }
       unlisten = stop;
 
+      if (initRef.current) return;
+      initRef.current = true;
       const pending = await getPendingFiles();
       for (const p of pending) await openPath(p);
       if (pending.length === 0 && tabsRef.current.length === 0) {
@@ -239,6 +294,36 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /* ---------- window close guard ---------- */
+
+  // With a JS close-requested listener registered, Tauri defers the close and
+  // destroys the window only if preventDefault() wasn't called.
+  useEffect(() => {
+    if (!inTauri) return;
+
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+
+    (async () => {
+      const stop = await getCurrentWindow().onCloseRequested((event) => {
+        if (tabsRef.current.some(isDirty)) {
+          event.preventDefault();
+          setQuitRequested(true);
+        }
+      });
+      if (cancelled) {
+        stop();
+        return;
+      }
+      unlisten = stop;
+    })();
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
   /* ---------- keyboard shortcuts ---------- */
 
   useEffect(() => {
@@ -248,7 +333,10 @@ export default function App() {
       const key = e.key.toLowerCase();
       if (key === "s") {
         e.preventDefault();
-        if (activeIdRef.current) void saveTab(activeIdRef.current);
+        if (activeIdRef.current) {
+          if (e.shiftKey) void saveTabAs(activeIdRef.current);
+          else void saveTab(activeIdRef.current);
+        }
       } else if (key === "o") {
         e.preventDefault();
         void openViaDialog();
@@ -262,12 +350,13 @@ export default function App() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [saveTab, openViaDialog, newTab, requestCloseTab]);
+  }, [saveTab, saveTabAs, openViaDialog, newTab, requestCloseTab]);
 
   /* ---------- render ---------- */
 
   const activeTab = tabs.find((t) => t.id === activeId) ?? null;
   const pendingCloseTab = tabs.find((t) => t.id === pendingCloseId) ?? null;
+  const dirtyTabs = tabs.filter(isDirty);
 
   return (
     <div className="app">
@@ -281,6 +370,26 @@ export default function App() {
           onNew={newTab}
         />
         <div className="header-actions">
+          <button
+            className={`icon-btn ${activeTab && isDirty(activeTab) ? "on" : ""}`}
+            aria-label="Save"
+            title={isMac ? "Save (⌘S)" : "Save (Ctrl+S)"}
+            disabled={!activeTab}
+            onClick={() => {
+              if (activeTab) void saveTab(activeTab.id);
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path
+                d="M1.5 2.5a1 1 0 0 1 1-1H10l2.5 2.5v7.5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1V2.5Z"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinejoin="round"
+              />
+              <path d="M4.5 1.5v3h4v-3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+              <path d="M4 12.5V8.5h6v4" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+            </svg>
+          </button>
           <button
             className={`icon-btn ${sidebarOpen ? "on" : ""}`}
             aria-label="Toggle outline"
@@ -324,7 +433,7 @@ export default function App() {
             )}
           </button>
         </div>
-        {isWindows && <WindowControls />}
+        {isWindows && inTauri && <WindowControls />}
       </header>
 
       <div className="body">
@@ -374,6 +483,30 @@ export default function App() {
             doCloseTab(pendingCloseTab.id);
           }}
           onCancel={() => setPendingCloseId(null)}
+        />
+      )}
+
+      {quitRequested && (
+        <ConfirmModal
+          title={dirtyTabs[0]?.title ?? ""}
+          message={
+            dirtyTabs.length > 1
+              ? `${dirtyTabs.length} files have unsaved changes. Your edits will be lost if you don’t save them.`
+              : undefined
+          }
+          saveLabel={dirtyTabs.length > 1 ? "Save all" : "Save"}
+          onSave={async () => {
+            for (const t of tabsRef.current.filter(isDirty)) {
+              const ok = await saveTab(t.id);
+              if (!ok) {
+                setQuitRequested(false);
+                return;
+              }
+            }
+            void getCurrentWindow().destroy();
+          }}
+          onDiscard={() => void getCurrentWindow().destroy()}
+          onCancel={() => setQuitRequested(false)}
         />
       )}
 

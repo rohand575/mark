@@ -8,19 +8,25 @@ Built with [Tauri 2](https://tauri.app) + React + [Milkdown Crepe](https://milkd
 
 ## Features
 
-- **WYSIWYG editing** — markdown renders as you type; syntax hides itself. Type `/` for a block menu.
-- **File association** — installer registers Mark as a handler for `.md` / `.markdown` files. Double-clicking a file opens it in a new tab of the running window (single instance).
-- **Tabs** — multiple files in one window, dirty-dot indicators, middle-click to close.
-- **Outline sidebar** — generated from headings, click to scroll.
-- **Dark + light themes** — follows the OS, manual toggle persists.
-- **Shortcuts** — `⌘/Ctrl+S` save · `⌘/Ctrl+O` open · `⌘/Ctrl+N` new · `⌘/Ctrl+W` close tab.
+* **WYSIWYG editing** — markdown renders as you type; syntax hides itself. Type `/` for a block menu.
+
+* **File association** — installer registers Mark as a handler for `.md` / `.markdown` files. Double-clicking a file opens it in a new tab of the running window (single instance). 
+
+* **Tabs** — multiple files in one window, dirty-dot indicators, middle-click to close.
+
+* **Outline sidebar** — generated from headings, click to scroll.
+
+* **Dark + light themes** — follows the OS, manual toggle persists.
+
+* **Shortcuts** — `⌘/Ctrl+S` save · `⌘/Ctrl+O` open · `⌘/Ctrl+N` new · `⌘/Ctrl+W` close tab.
 
 ## Development
 
 Prerequisites: [Node.js 20+](https://nodejs.org) and [Rust](https://rustup.rs).
 
-- macOS: `xcode-select --install` (one time)
-- Windows: [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with the "Desktop development with C++" workload, plus [WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (preinstalled on Windows 10/11)
+* macOS: `xcode-select --install` (one time)
+
+* Windows: [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with the "Desktop development with C++" workload, plus [WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (preinstalled on Windows 10/11)
 
 ```sh
 npm install
@@ -35,8 +41,9 @@ npm run tauri build
 
 Outputs land in `src-tauri/target/release/bundle/`:
 
-- macOS: `dmg/Mark_x.y.z_*.dmg`
-- Windows: `nsis/Mark_x.y.z_*-setup.exe`
+* macOS: `dmg/Mark_x.y.z_*.dmg`
+
+* Windows: `nsis/Mark_x.y.z_*-setup.exe`
 
 ### Via GitHub Actions
 

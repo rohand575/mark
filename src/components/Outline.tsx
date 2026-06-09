@@ -5,22 +5,50 @@ interface Heading {
   text: string;
 }
 
+const cleanText = (s: string) => s.replace(/[*_`~[\]]/g, "").trim();
+
+// Indices must stay aligned with the h1–h6 elements the editor renders, so
+// blockquoted ATX headings and setext headings are included too.
 function parseHeadings(markdown: string): Heading[] {
   const headings: Heading[] = [];
-  let inFence = false;
-  for (const line of markdown.split("\n")) {
-    if (/^(```|~~~)/.test(line.trim())) {
-      inFence = !inFence;
+  let fenceChar: string | null = null;
+  let prevParagraph: string | null = null;
+
+  for (const rawLine of markdown.split("\n")) {
+    const line = rawLine.trim();
+
+    const fence = /^(`{3,}|~{3,})/.exec(line);
+    if (fence) {
+      const char = fence[1][0];
+      if (!fenceChar) fenceChar = char;
+      else if (char === fenceChar) fenceChar = null;
+      prevParagraph = null;
       continue;
     }
-    if (inFence) continue;
-    const match = /^(#{1,6})\s+(.+)/.exec(line);
-    if (match) {
-      headings.push({
-        level: match[1].length,
-        text: match[2].replace(/[*_`~[\]]/g, "").trim(),
-      });
+    if (fenceChar) continue;
+
+    const stripped = line.replace(/^(>\s*)+/, "");
+    const atx = /^(#{1,6})\s+(.+)/.exec(stripped);
+    if (atx) {
+      headings.push({ level: atx[1].length, text: cleanText(atx[2]) });
+      prevParagraph = null;
+      continue;
     }
+
+    // Setext: a ===/--- underline directly below a paragraph line.
+    if (prevParagraph && /^(=+|-+)\s*$/.test(line)) {
+      headings.push({
+        level: line[0] === "=" ? 1 : 2,
+        text: cleanText(prevParagraph),
+      });
+      prevParagraph = null;
+      continue;
+    }
+
+    // Only plain paragraph lines can carry a setext underline (not blanks,
+    // list items, blockquotes, or headings).
+    prevParagraph =
+      stripped && !/^([-*+>#]|\d+[.)])/.test(stripped) ? stripped : null;
   }
   return headings;
 }

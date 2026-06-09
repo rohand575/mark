@@ -1,8 +1,9 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-const win = getCurrentWindow();
-
 export default function WindowControls() {
+  // Resolved lazily: getCurrentWindow() throws outside the Tauri shell, so it
+  // must not run at module load (this file is imported unconditionally).
+  const win = getCurrentWindow();
   return (
     <div className="window-controls">
       <button
