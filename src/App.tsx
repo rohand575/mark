@@ -294,10 +294,10 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* ---------- window close guard ---------- */
+  /* ---------- quit guard (triggered by tray "Quit Mark") ---------- */
 
-  // With a JS close-requested listener registered, Tauri defers the close and
-  // destroys the window only if preventDefault() wasn't called.
+  // The close button now hides to tray. Actual quit comes from the tray menu,
+  // which emits "quit-requested" so we can still run the dirty-file check.
   useEffect(() => {
     if (!inTauri) return;
 
@@ -305,10 +305,11 @@ export default function App() {
     let cancelled = false;
 
     (async () => {
-      const stop = await getCurrentWindow().onCloseRequested((event) => {
+      const stop = await listen("quit-requested", () => {
         if (tabsRef.current.some(isDirty)) {
-          event.preventDefault();
           setQuitRequested(true);
+        } else {
+          void getCurrentWindow().destroy();
         }
       });
       if (cancelled) {

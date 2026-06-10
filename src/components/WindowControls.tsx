@@ -26,8 +26,9 @@ export default function WindowControls() {
       </button>
       <button
         className="wc-btn wc-close"
-        aria-label="Close"
-        onClick={() => win.close()}
+        aria-label="Hide to tray"
+        title="Hide to tray (Ctrl+Alt+M to show again)"
+        onClick={() => win.hide()}
       >
         <svg width="10" height="10" viewBox="0 0 10 10">
           <line x1="0" y1="0" x2="10" y2="10" stroke="currentColor" strokeWidth="1" />
